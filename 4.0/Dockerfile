@@ -21,8 +21,8 @@ RUN install_packages openjdk-17-jre-headless
 
 RUN mkdir -p /opt/bitnami/kafka/ ; \
     mkdir -p /tmp/bitnami/pkg/cache/ ; cd /tmp/bitnami/pkg/cache/ || exit 1 ; \
-    COMPONENT=kafka_2.13-4.0.0.tgz; \
-    curl -sSL -O "https://dlcdn.apache.org/kafka/4.0.0/${COMPONENT}"; \
+    COMPONENT=kafka_2.13-4.0.1.tgz; \
+    curl -sSL -O "https://dlcdn.apache.org/kafka/4.0.1/${COMPONENT}"; \
     tar -zxf "${COMPONENT}" -C /opt/bitnami/kafka --strip-components=1 --no-same-owner ; \
     rm -rf "${COMPONENT}"
 
@@ -36,7 +36,7 @@ RUN ln -s /opt/bitnami/scripts/kafka/run.sh /run.sh
 COPY rootfs /
 RUN /opt/bitnami/scripts/java/postunpack.sh
 RUN /opt/bitnami/scripts/kafka/postunpack.sh
-ENV APP_VERSION="4.0.0" \
+ENV APP_VERSION="4.0.1" \
     BITNAMI_APP_NAME="kafka" \
     PATH="/opt/bitnami/java/bin:/opt/bitnami/kafka/bin:$PATH"
 
