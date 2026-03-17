@@ -45,8 +45,8 @@ print_image_welcome_page() {
     local github_url="https://github.com/bitnami/containers"
 
     info ""
-    info "${BOLD}Welcome to the Bitnami ${BITNAMI_APP_NAME} container${RESET}"
-    info "Subscribe to project updates by watching ${BOLD}${github_url}${RESET}"
+    info "${BOLD}Welcome to the forked Bitnami ${BITNAMI_APP_NAME} container${RESET}"
+    #info "Subscribe to project updates by watching ${BOLD}${github_url}${RESET}"
     info "${YELLOW}NOTICE: This is a forked version of bitnami image and not official.${RESET}"
     info ""
 }

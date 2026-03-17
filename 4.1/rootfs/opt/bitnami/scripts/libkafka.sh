@@ -119,6 +119,24 @@ kafka_is_zookeeper_supported() {
 }
 
 ########################
+# Returns true if dynamic controller quorum is supported
+# Globals:
+#   None
+# Arguments:
+#   None
+# Returns:
+#   true/false
+#########################
+kafka_is_dynamic_controller_quorum_supported() {
+    major_version="$(get_sematic_version "$(kafka_get_version)" 1)"
+    minor_version="$(get_sematic_version "$(kafka_get_version)" 2)"
+    if ([[ "$major_version" -eq "3" ]] && [[ "$minor_version" -ge "9" ]]) || ([[ "$major_version" -ge "4" ]]); then
+        return
+    fi
+    return 1
+}
+
+########################
 # Returns true if at least one listener is configured using SSL
 # Globals:
 #   KAFKA_CFG_LISTENERS
@@ -277,7 +295,7 @@ kafka_create_alias_environment_variables() {
         "ADVERTISED_LISTENERS"
         "BROKER_ID"
         "NODE_ID"
-        "CONTROLLER_QUORUM_VOTERS"
+        "CONTROLLER_QUORUM_BOOTSTRAP_SERVERS"
         "PROCESS_ROLES"
         "DEFAULT_REPLICATION_FACTOR"
         "DELETE_TOPIC_ENABLE"
@@ -365,8 +383,8 @@ kafka_validate() {
                 if is_empty_value "${KAFKA_CFG_LISTENERS:-}" || [[ ! "$KAFKA_CFG_LISTENERS" =~ ${KAFKA_CFG_CONTROLLER_LISTENER_NAMES} ]]; then
                     print_validation_error "Role 'controller' enabled but listener ${KAFKA_CFG_CONTROLLER_LISTENER_NAMES} not found in KAFKA_CFG_LISTENERS."
                 fi
-                if is_empty_value "${KAFKA_CFG_CONTROLLER_QUORUM_VOTERS:-}"; then
-                    print_validation_error "Role 'controller' enabled but environment variable KAFKA_CFG_CONTROLLER_QUORUM_VOTERS was not provided."
+                if [[ ${KAFKA_CFG_CONTROLLER_QUORUM_BOOTSTRAP_SERVERS} != "localhost:9093" ]] && is_empty_value "${KAFKA_INITIAL_CONTROLLERS:-}"; then
+                    print_validation_error "Role 'controller' enabled and KAFKA_CFG_CONTROLLER_QUORUM_BOOTSTRAP_SERVERS for dynamic controller quorum configured but KAFKA_INITIAL_CONTROLLERS was not provided."
                 fi
                 ;;
             *)
@@ -896,43 +914,19 @@ kafka_kraft_storage_initialize() {
             args+=("--add-scram" "SCRAM-SHA-512=[name=${KAFKA_CONTROLLER_USER},password=${KAFKA_CONTROLLER_PASSWORD}]")
         fi
     fi
-    if ! kafka_is_zookeeper_supported && [[ "${KAFKA_CFG_PROCESS_ROLES:-}" =~ "controller" ]]; then
+    if kafka_is_dynamic_controller_quorum_supported && [[ "${KAFKA_CFG_PROCESS_ROLES:-}" =~ "controller" ]] && [[ "${KAFKA_KRAFT_VERSION:-}" -eq "1" ]]; then
         args+=("--feature=kraft.version=1")
         if [[ -n "${KAFKA_INITIAL_CONTROLLERS:-}" ]]; then
             args+=("--initial-controllers=${KAFKA_INITIAL_CONTROLLERS}")
         else
-            args+=("--no-initial-controllers")
+            args+=("--standalone")
         fi
     fi
 
     info "Formatting storage directories to add metadata..."
-    debug_execute "${KAFKA_HOME}/bin/kafka-storage.sh" format "${args[@]}"
-}
-
-########################
-# Detects inconsistences between the configuration at KAFKA_CONF_FILE and cluster-state file
-# Globals:
-#   KAFKA_*
-# Arguments:
-#   None
-# Returns:
-#   None
-#########################
-kafka_kraft_quorum_voters_changed(){
-    read -r -a quorum_voters_conf_ids <<<"$(grep "^controller.quorum.voters=" "$KAFKA_CONF_FILE" | sed "s/^controller.quorum.voters=//" | tr "," " " | sed -E "s/\@\S+//g")"
-    read -r -a quorum_voters_state_ids <<< "$(grep -Eo "\{\"voterId\":[0-9]+\}" "${KAFKA_DATA_DIR}/__cluster_metadata-0/quorum-state" | grep -Eo "[0-9]+" | tr "\n" " ")"
-
-    if [[ "${#quorum_voters_conf_ids[@]}" != "${#quorum_voters_state_ids[@]}" ]]; then
-        true
-    else
-        read -r -a sorted_state <<< "$(echo "${quorum_voters_conf_ids[@]}" | tr ' ' '\n' | sort | tr '\n' ' ')"
-        read -r -a sorted_conf <<< "$(echo "${quorum_voters_state_ids[@]}" | tr ' ' '\n' | sort | tr '\n' ' ')"
-        if [[ "${sorted_state[*]}" = "${sorted_conf[*]}" ]]; then
-            false
-        else
-            true
-        fi
-    fi
+    cmd=("${KAFKA_HOME}/bin/kafka-storage.sh" "format")
+    am_i_root && cmd=("run_as_user" "$KAFKA_DAEMON_USER" "${cmd[@]}")
+    debug_execute "${cmd[@]}" "${args[@]}"
 }
 
 ########################
@@ -1123,9 +1117,13 @@ kafka_dynamic_environment_variables() {
         KAFKA_CFG_NODE_ID="$(eval "${KAFKA_NODE_ID_COMMAND}")"
         export KAFKA_CFG_NODE_ID
     fi
-    if ! is_empty_value "${KAFKA_CONTROLLER_QUORUM_VOTERS_COMMAND:-}"; then
-        KAFKA_CFG_CONTROLLER_QUORUM_VOTERS="$(eval "${KAFKA_CONTROLLER_QUORUM_VOTERS_COMMAND}")"
-        export KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+    if ! is_empty_value "${KAFKA_CONTROLLER_QUORUM_BOOTSTRAP_SERVERS_COMMAND:-}"; then
+        KAFKA_CFG_CONTROLLER_QUORUM_BOOTSTRAP_SERVERS="$(eval "${KAFKA_CONTROLLER_QUORUM_BOOTSTRAP_SERVERS_COMMAND}")"
+        export KAFKA_CFG_CONTROLLER_QUORUM_BOOTSTRAP_SERVERS
+    fi
+    if ! is_empty_value "${KAFKA_INITIAL_CONTROLLERS_COMMAND:-}"; then
+        KAFKA_INITIAL_CONTROLLERS="$(eval "${KAFKA_INITIAL_CONTROLLERS_COMMAND}")"
+        export KAFKA_INITIAL_CONTROLLERS
     fi
     if kafka_is_zookeeper_supported; then
         # Zookeeper mode
